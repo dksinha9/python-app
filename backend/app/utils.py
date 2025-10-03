@@ -121,3 +121,137 @@ def verify_password_reset_token(token: str) -> str | None:
         return str(decoded_token["sub"])
     except InvalidTokenError:
         return None
+
+
+# MikroTik Router API Client
+import httpx
+from typing import Dict, List
+
+
+class MikroTikAPIError(Exception):
+    """Custom exception for MikroTik API errors."""
+
+    pass
+
+
+def get_mikrotik_url(router_ip: str, port: int = 80) -> str:
+    """
+    Build the base URL for MikroTik API.
+    port: Port number (default 80 for HTTP, use 443 for HTTPS)
+    """
+    # Use HTTPS for port 443, HTTP for everything else
+    protocol = "https" if port == 443 else "http"
+    return f"{protocol}://{router_ip}:{port}"
+
+
+async def test_mikrotik_connection(
+    router_ip: str, username: str, password: str, port: int = 80
+) -> Dict[str, Any]:
+    """
+    Test connection to MikroTik router and fetch system resource info.
+    Returns router details if successful.
+    Raises MikroTikAPIError if connection fails.
+    """
+    base_url = get_mikrotik_url(router_ip, port)
+    url = f"{base_url}/rest/system/resource"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                url, auth=httpx.BasicAuth(username, password)
+            )
+
+            if response.status_code == 401:
+                raise MikroTikAPIError("Authentication failed: Invalid credentials")
+
+            if response.status_code != 200:
+                raise MikroTikAPIError(
+                    f"Failed to connect: HTTP {response.status_code}"
+                )
+
+            data = response.json()
+            return data
+
+    except httpx.ConnectError:
+        raise MikroTikAPIError(f"Connection failed: Unable to reach {router_ip}")
+    except httpx.TimeoutException:
+        raise MikroTikAPIError(f"Connection timeout: {router_ip} did not respond")
+    except Exception as e:
+        raise MikroTikAPIError(f"Unexpected error: {str(e)}")
+
+
+async def get_mikrotik_serial_number(
+    router_ip: str, username: str, password: str, port: int = 80
+) -> str:
+    """
+    Get the serial number from MikroTik router.
+    Returns serial number from /rest/system/routerboard.
+    Raises MikroTikAPIError if connection fails.
+    """
+    base_url = get_mikrotik_url(router_ip, port)
+    url = f"{base_url}/rest/system/routerboard"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                url, auth=httpx.BasicAuth(username, password)
+            )
+
+            if response.status_code == 401:
+                raise MikroTikAPIError("Authentication failed: Invalid credentials")
+
+            if response.status_code != 200:
+                raise MikroTikAPIError(
+                    f"Failed to get routerboard info: HTTP {response.status_code}"
+                )
+
+            data = response.json()
+            serial = data.get("serial-number")
+
+            if not serial:
+                raise MikroTikAPIError("Serial number not found in routerboard info")
+
+            return serial
+
+    except httpx.ConnectError:
+        raise MikroTikAPIError(f"Connection failed: Unable to reach {router_ip}")
+    except httpx.TimeoutException:
+        raise MikroTikAPIError(f"Connection timeout: {router_ip} did not respond")
+    except Exception as e:
+        raise MikroTikAPIError(f"Unexpected error getting serial number: {str(e)}")
+
+
+async def discover_mikrotik_neighbors(
+    router_ip: str, username: str, password: str, port: int = 80
+) -> List[Dict[str, Any]]:
+    """
+    Discover neighbor devices from MikroTik router.
+    Returns list of neighbor device information.
+    Raises MikroTikAPIError if discovery fails.
+    """
+    base_url = get_mikrotik_url(router_ip, port)
+    url = f"{base_url}/rest/ip/neighbor"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                url, auth=httpx.BasicAuth(username, password)
+            )
+
+            if response.status_code == 401:
+                raise MikroTikAPIError("Authentication failed: Invalid credentials")
+
+            if response.status_code != 200:
+                raise MikroTikAPIError(
+                    f"Failed to discover neighbors: HTTP {response.status_code}"
+                )
+
+            neighbors = response.json()
+            return neighbors if isinstance(neighbors, list) else []
+
+    except httpx.ConnectError:
+        raise MikroTikAPIError(f"Connection failed: Unable to reach {router_ip}")
+    except httpx.TimeoutException:
+        raise MikroTikAPIError(f"Connection timeout: {router_ip} did not respond")
+    except Exception as e:
+        raise MikroTikAPIError(f"Unexpected error during discovery: {str(e)}")
